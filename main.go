@@ -21,26 +21,41 @@ var (
 	endpoint        string
 	secure          bool
 	preferDirectory bool // Minio does not allow duplicate names for directory and file names, but s3 does.
+	allowBucketsOps bool
+	verbose         bool
+
+	username string // for debug
+	password string // for debug
 )
 
 var RootCmd = &cobra.Command{
 	Use: "miniodav",
 	Run: func(cmd *cobra.Command, args []string) {
 		srv := &webdav.Handler{
-			FileSystem: &Handler{},
-			LockSystem: &Handler{},
+			FileSystem: newHandler(),
+			LockSystem: webdav.NewMemLS(),
 			Logger: func(r *http.Request, err error) {
-				log.Printf("%s %s %v", r.Method, r.URL, err)
+				if verbose {
+					log.Printf("%s %s %v", r.Method, r.URL, err)
+				}
 			},
 		}
 		http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-			username, password, _ := r.BasicAuth()
+			_username, _password, _ := r.BasicAuth()
+			if username != "" {
+				_username = username
+			}
+			if password != "" {
+				_password = password
+			}
 			mc, err := minio.New(endpoint, &minio.Options{
-				Creds:  credentials.NewStaticV4(username, password, ""),
+				Creds:  credentials.NewStaticV4(_username, _password, ""),
 				Secure: true,
 			})
 			if err != nil {
-				log.Println(err)
+				if verbose {
+					log.Println(err)
+				}
 				w.WriteHeader(http.StatusInternalServerError)
 				return
 			}
@@ -55,7 +70,9 @@ var RootCmd = &cobra.Command{
 							return
 						}
 					}
-					log.Println(err)
+					if verbose {
+						log.Println(err)
+					}
 					w.WriteHeader(http.StatusInternalServerError)
 					return
 				}
@@ -74,6 +91,12 @@ func init() {
 	RootCmd.Flags().BoolVarP(&secure, "secure", "s", true, "Use secure connection")
 	RootCmd.Flags().UintVarP(&port, "port", "p", 8080, "Port to listen on")
 	RootCmd.Flags().BoolVarP(&preferDirectory, "prefer-directory", "d", true, "Prefer directory over file")
+	RootCmd.Flags().BoolVarP(&allowBucketsOps, "allow-buckets-ops", "b", false, "Allow operations on buckets")
+	RootCmd.Flags().BoolVarP(&verbose, "verbose", "v", false, "Verbose output")
+	RootCmd.Flags().StringVarP(&username, "username", "U", "", "Username")
+	RootCmd.Flags().MarkHidden("username")
+	RootCmd.Flags().StringVarP(&password, "password", "P", "", "Password")
+	RootCmd.Flags().MarkHidden("password")
 }
 
 func main() {

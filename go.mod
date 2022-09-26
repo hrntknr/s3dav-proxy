@@ -6,6 +6,7 @@ require (
 	github.com/minio/minio-go/v7 v7.0.38
 	github.com/spf13/cobra v1.5.0
 	golang.org/x/net v0.0.0-20220923203811-8be639271d50
+	golang.org/x/sync v0.0.0-20220923202941-7f9b1623fab7
 )
 
 require (

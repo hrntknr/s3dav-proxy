@@ -1,10 +1,7 @@
 package main
 
 import (
-	"os"
 	"strings"
-
-	"github.com/minio/minio-go/v7"
 )
 
 func splitPath(name string) []string {
@@ -19,16 +16,36 @@ func splitPath(name string) []string {
 }
 
 func handleMinioError(err error) error {
-	if err == nil {
-		return nil
+	return err
+}
+
+func listChildDummyDirs(dummyDirs []string, bucket string, path string) []string {
+	key := bucket
+	if path != "" {
+		key += "/" + path
 	}
-	if minioErr, ok := err.(minio.ErrorResponse); ok {
-		switch minioErr.Code {
-		case "NoSuchBucket":
-			return os.ErrNotExist
-		case "NoSuchKey":
-			return os.ErrNotExist
+	dirs := map[string]struct{}{}
+	for _, dummyDir := range dummyDirs {
+		if strings.HasPrefix(dummyDir, key+"/") {
+			dirs[strings.Split(dummyDir[len(key)+1:], "/")[0]] = struct{}{}
 		}
 	}
-	return os.ErrInvalid
+	_dirs := []string{}
+	for dir := range dirs {
+		_dirs = append(_dirs, dir)
+	}
+	return _dirs
+}
+
+func isDummyDir(dummyDirs []string, bucket string, path string) bool {
+	key := bucket
+	if path != "" {
+		key += "/" + path
+	}
+	for _, dummyDir := range dummyDirs {
+		if dummyDir == key {
+			return true
+		}
+	}
+	return false
 }

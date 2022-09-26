@@ -1,19 +1,42 @@
 package main
 
 import (
+	"bytes"
 	"context"
+	"fmt"
 	"io/fs"
 	"os"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/minio/minio-go/v7"
 )
 
 type File struct {
-	ctx  context.Context
-	mc   *minio.Client
-	path []string
+	ctx         context.Context
+	mc          *minio.Client
+	path        []string
+	dummyDirs   []string
+	offset      int64
+	lock        *sync.Mutex
+	cacheObject *minio.Object
+	writeBuffer *bytes.Buffer
+	flag        int
+}
+
+func newFile(ctx context.Context, mc *minio.Client, path []string, dummyDirs []string, flag int) *File {
+	return &File{
+		ctx:         context.Background(),
+		mc:          mc,
+		path:        path,
+		dummyDirs:   dummyDirs,
+		offset:      0,
+		lock:        &sync.Mutex{},
+		cacheObject: nil,
+		writeBuffer: bytes.NewBuffer([]byte{}),
+		flag:        flag,
+	}
 }
 
 func (f *File) Readdir(count int) ([]fs.FileInfo, error) {
@@ -62,6 +85,17 @@ func (f *File) Readdir(count int) ([]fs.FileInfo, error) {
 				}
 			}
 		}
+		for _, dir := range listChildDummyDirs(f.dummyDirs, f.path[0], strings.Join(f.path[1:], "/")) {
+			_, ok := filesMap[dir]
+			if !ok {
+				filesMap[dir] = &FileInfo{
+					name:    dir,
+					size:    0,
+					modTime: time.Now(),
+					isDir:   true,
+				}
+			}
+		}
 		files := []fs.FileInfo{}
 		for _, file := range filesMap {
 			files = append(files, file)
@@ -69,7 +103,9 @@ func (f *File) Readdir(count int) ([]fs.FileInfo, error) {
 		return files, nil
 	}
 }
+
 func (f *File) Stat() (fs.FileInfo, error) {
+	fmt.Sprintln("Stat", f.path)
 	if len(f.path) == 0 {
 		if _, err := f.mc.ListBuckets(context.Background()); err != nil {
 			return nil, handleMinioError(err)
@@ -129,26 +165,108 @@ func (f *File) Stat() (fs.FileInfo, error) {
 					isDir:   true,
 				}, nil
 			} else {
-				return &FileInfo{
-					name:    "",
-					size:    findObj.Size,
-					modTime: findObj.LastModified,
-					isDir:   false,
-				}, nil
+				if f.writeBuffer.Len() > 0 {
+					return &FileInfo{
+						name:    "",
+						size:    int64(f.writeBuffer.Len()),
+						modTime: time.Now(),
+						isDir:   false,
+					}, nil
+				} else {
+					return &FileInfo{
+						name:    "",
+						size:    findObj.Size,
+						modTime: findObj.LastModified,
+						isDir:   false,
+					}, nil
+				}
 			}
+		}
+		if isDummyDir(f.dummyDirs, f.path[0], strings.Join(f.path[1:], "/")) {
+			return &FileInfo{
+				name:    "",
+				size:    0,
+				modTime: time.Now(),
+				isDir:   true,
+			}, nil
+		}
+		if f.flag&os.O_CREATE != 0 {
+			if _, err := f.mc.PutObject(f.ctx, f.path[0], strings.Join(f.path[1:], "/"), bytes.NewBuffer([]byte{}), 0, minio.PutObjectOptions{}); err != nil {
+				return nil, handleMinioError(err)
+			}
+			return f.Stat()
 		}
 		return nil, os.ErrNotExist
 	}
 }
+
 func (f *File) Read(p []byte) (n int, err error) {
-	return 0, nil
+	fmt.Sprintln("Read", f.path)
+	f.lock.Lock()
+	defer f.lock.Unlock()
+
+	if err := f.cache(); err != nil {
+		return 0, err
+	}
+
+	return f.cacheObject.Read(p)
 }
+
 func (f *File) Write(p []byte) (n int, err error) {
-	return 0, os.ErrNotExist
+	fmt.Sprintln("Write", f.path)
+	f.lock.Lock()
+	defer f.lock.Unlock()
+
+	if len(f.path) <= 1 {
+		return 0, os.ErrInvalid
+	}
+	if f.offset != 0 {
+		f.writeBuffer.Reset()
+		return 0, os.ErrInvalid
+	}
+	return f.writeBuffer.Write(p)
 }
+
 func (f *File) Seek(offset int64, whence int) (int64, error) {
-	return 0, nil
+	fmt.Sprintln("Seek", f.path)
+	f.lock.Lock()
+	defer f.lock.Unlock()
+
+	if err := f.cache(); err != nil {
+		return 0, err
+	}
+
+	cur, err := f.cacheObject.Seek(offset, whence)
+	if err != nil {
+		return 0, err
+	}
+	f.offset = cur
+	return cur, nil
 }
+
 func (f *File) Close() error {
+	fmt.Sprintln("Close", f.path)
+	if f.writeBuffer.Len() > 0 {
+		if _, err := f.mc.PutObject(f.ctx, f.path[0], strings.Join(f.path[1:], "/"), f.writeBuffer, int64(f.writeBuffer.Len()), minio.PutObjectOptions{}); err != nil {
+			return handleMinioError(err)
+		}
+	}
+	if f.cacheObject != nil {
+		if err := f.cacheObject.Close(); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (f *File) cache() error {
+	if f.cacheObject != nil {
+		return nil
+	}
+	obj, err := f.mc.GetObject(f.ctx, f.path[0], strings.Join(f.path[1:], "/"), minio.GetObjectOptions{})
+	if err != nil {
+		return handleMinioError(err)
+	}
+	f.cacheObject = obj
 	return nil
 }
