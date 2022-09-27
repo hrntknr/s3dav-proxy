@@ -20,6 +20,7 @@ var minioClientCtxKey ctxKey
 var (
 	port            uint
 	endpoint        string
+	region          string
 	secure          bool
 	preferDirectory bool // Minio does not allow duplicate names for directory and file names, but s3 does.
 	allowBucketsOps bool
@@ -54,6 +55,7 @@ var RootCmd = &cobra.Command{
 			mc, err := minio.New(endpoint, &minio.Options{
 				Creds:  credentials.NewStaticV4(_username, _password, ""),
 				Secure: secure,
+				Region: region,
 			})
 			if err != nil {
 				if verbose {
@@ -100,6 +102,7 @@ var RootCmd = &cobra.Command{
 
 func init() {
 	RootCmd.Flags().StringVarP(&endpoint, "endpoint", "e", "localhost:9000", "Minio endpoint")
+	RootCmd.Flags().StringVarP(&region, "region", "r", "", "Region(for S3)")
 	RootCmd.Flags().BoolVarP(&secure, "secure", "s", false, "Use secure connection")
 	RootCmd.Flags().UintVarP(&port, "port", "p", 8080, "Port to listen on")
 	RootCmd.Flags().BoolVarP(&preferDirectory, "prefer-directory", "d", true, "Prefer directory over file")
