@@ -7,7 +7,7 @@ on:
     branches: [ "main" ]
 
 env:
-  REGISTRY: registry.hub.docker.com
+  REGISTRY: docker.io
   IMAGE_NAME: ${{ github.repository }}
 
 jobs:
