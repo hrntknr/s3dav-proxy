@@ -81,6 +81,12 @@ var RootCmd = &cobra.Command{
 					w.WriteHeader(http.StatusInternalServerError)
 					return
 				}
+			} else {
+				if _username == "" || _password == "" {
+					w.Header().Set("WWW-Authenticate", `Basic realm="Restricted"`)
+					w.WriteHeader(http.StatusUnauthorized)
+					return
+				}
 			}
 
 			srv.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), minioClientCtxKey, mc)))
