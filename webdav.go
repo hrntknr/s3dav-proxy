@@ -33,7 +33,22 @@ func (d *Handler) Mkdir(ctx context.Context, name string, perm os.FileMode) erro
 			return os.ErrPermission
 		}
 	}
-	d.dummyDirs = append(d.dummyDirs, strings.Join(names, "/"))
+	// d.dummyDirs = append(d.dummyDirs, strings.Join(names, "/"))
+	for i := len(names); i > 1; i-- {
+		list := mc.ListObjects(ctx, names[0], minio.ListObjectsOptions{
+			Prefix: strings.Join(names[1:i], "/") + "/",
+		})
+		isExist := false
+		for obj := range list {
+			if obj.Err != nil {
+				return handleMinioError(obj.Err)
+			}
+			isExist = true
+		}
+		if !isExist {
+			d.dummyDirs = append(d.dummyDirs, strings.Join(names[:i], "/"))
+		}
+	}
 	return nil
 }
 
@@ -83,13 +98,14 @@ func (d *Handler) RemoveAll(ctx context.Context, name string) error {
 	}
 	if !isExist {
 		if isDummyDir(d.dummyDirs, names[0], strings.Join(names[1:], "/")) {
+			d.dummyDirs = deleteDummyDir(d.dummyDirs, names[0], strings.Join(names[1:], "/"))
 			return nil
 		}
 		return os.ErrNotExist
 	}
 
 	// Trace back to the parent folder where only the deletion target exists and save it.
-	for i := len(names) - 1; i > 0; i-- {
+	for i := len(names) - 1; i > 1; i-- {
 		list := mc.ListObjects(ctx, names[0], minio.ListObjectsOptions{
 			Prefix: strings.Join(names[1:i], "/") + "/",
 		})
@@ -98,19 +114,23 @@ func (d *Handler) RemoveAll(ctx context.Context, name string) error {
 			if obj.Err != nil {
 				return handleMinioError(obj.Err)
 			}
-			if !strings.HasPrefix(obj.Key, strings.Join(names[1:], "/")) {
+			if !strings.HasPrefix(strings.Join(names[1:], "/")+"/", obj.Key) {
 				isExist = true
 				break
 			}
 		}
 		if isExist {
-			break
+			continue
 		}
 		d.dummyDirs = append(d.dummyDirs, strings.Join(names[:i], "/"))
 	}
 
 	if isDir {
 		eg := &errgroup.Group{}
+		list := mc.ListObjects(ctx, names[0], minio.ListObjectsOptions{
+			Prefix:    strings.Join(names[1:], "/"),
+			Recursive: true,
+		})
 		for obj := range list {
 			if obj.Err != nil {
 				return handleMinioError(obj.Err)
@@ -124,6 +144,7 @@ func (d *Handler) RemoveAll(ctx context.Context, name string) error {
 		if err := eg.Wait(); err != nil {
 			return err
 		}
+		d.dummyDirs = deleteDummyDir(d.dummyDirs, names[0], strings.Join(names[1:], "/"))
 	} else {
 		if err := mc.RemoveObject(ctx, names[0], strings.Join(names[1:], "/"), minio.RemoveObjectOptions{}); err != nil {
 			return handleMinioError(err)
@@ -137,6 +158,13 @@ func (d *Handler) Rename(ctx context.Context, oldName, newName string) error {
 	mc := ctx.Value(minioClientCtxKey).(*minio.Client)
 	oldNames := splitPath(oldName)
 	newNames := splitPath(newName)
+
+	dummyDirs, renameDummy := renameDummyDir(d.dummyDirs, oldNames[0], strings.Join(oldNames[1:], "/"), newNames[0], strings.Join(newNames[1:], "/"))
+	d.dummyDirs = dummyDirs
+	if renameDummy {
+		return nil
+	}
+
 	dst := minio.CopyDestOptions{
 		Bucket: newNames[0],
 		Object: strings.Join(newNames[1:], "/"),

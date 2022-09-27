@@ -3,7 +3,6 @@ package main
 import (
 	"bytes"
 	"context"
-	"fmt"
 	"io/fs"
 	"os"
 	"strings"
@@ -105,7 +104,6 @@ func (f *File) Readdir(count int) ([]fs.FileInfo, error) {
 }
 
 func (f *File) Stat() (fs.FileInfo, error) {
-	fmt.Sprintln("Stat", f.path)
 	if len(f.path) == 0 {
 		if _, err := f.mc.ListBuckets(context.Background()); err != nil {
 			return nil, handleMinioError(err)
@@ -201,7 +199,6 @@ func (f *File) Stat() (fs.FileInfo, error) {
 }
 
 func (f *File) Read(p []byte) (n int, err error) {
-	fmt.Sprintln("Read", f.path)
 	f.lock.Lock()
 	defer f.lock.Unlock()
 
@@ -213,7 +210,6 @@ func (f *File) Read(p []byte) (n int, err error) {
 }
 
 func (f *File) Write(p []byte) (n int, err error) {
-	fmt.Sprintln("Write", f.path)
 	f.lock.Lock()
 	defer f.lock.Unlock()
 
@@ -228,7 +224,6 @@ func (f *File) Write(p []byte) (n int, err error) {
 }
 
 func (f *File) Seek(offset int64, whence int) (int64, error) {
-	fmt.Sprintln("Seek", f.path)
 	f.lock.Lock()
 	defer f.lock.Unlock()
 
@@ -245,7 +240,6 @@ func (f *File) Seek(offset int64, whence int) (int64, error) {
 }
 
 func (f *File) Close() error {
-	fmt.Sprintln("Close", f.path)
 	if f.writeBuffer.Len() > 0 {
 		if _, err := f.mc.PutObject(f.ctx, f.path[0], strings.Join(f.path[1:], "/"), f.writeBuffer, int64(f.writeBuffer.Len()), minio.PutObjectOptions{}); err != nil {
 			return handleMinioError(err)

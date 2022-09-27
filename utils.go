@@ -27,7 +27,10 @@ func listChildDummyDirs(dummyDirs []string, bucket string, path string) []string
 	dirs := map[string]struct{}{}
 	for _, dummyDir := range dummyDirs {
 		if strings.HasPrefix(dummyDir, key+"/") {
-			dirs[strings.Split(dummyDir[len(key)+1:], "/")[0]] = struct{}{}
+			tmp := strings.Split(strings.TrimPrefix(dummyDir, key+"/"), "/")
+			if len(tmp) == 1 {
+				dirs[tmp[0]] = struct{}{}
+			}
 		}
 	}
 	_dirs := []string{}
@@ -48,4 +51,42 @@ func isDummyDir(dummyDirs []string, bucket string, path string) bool {
 		}
 	}
 	return false
+}
+
+func deleteDummyDir(dummyDirs []string, bucket string, path string) []string {
+	key := bucket
+	if path != "" {
+		key += "/" + path
+	}
+	_dummyDirs := []string{}
+	for _, dummyDir := range dummyDirs {
+		if !strings.HasPrefix(dummyDir, key) {
+			_dummyDirs = append(_dummyDirs, dummyDir)
+		}
+	}
+	return _dummyDirs
+}
+
+func renameDummyDir(dummyDirs []string, bucket string, path string, newBucket string, newPath string) ([]string, bool) {
+	key := bucket
+	if path != "" {
+		key += "/" + path
+	}
+	newKey := newBucket
+	if newPath != "" {
+		newKey += "/" + newPath
+	}
+	_dummyDirs := []string{}
+	renameDummy := false
+	for _, dummyDir := range dummyDirs {
+		if strings.HasPrefix(dummyDir, key) {
+			if dummyDir == key {
+				renameDummy = true
+			}
+			_dummyDirs = append(_dummyDirs, strings.Replace(dummyDir, key, newKey, 1))
+		} else {
+			_dummyDirs = append(_dummyDirs, dummyDir)
+		}
+	}
+	return _dummyDirs, renameDummy
 }

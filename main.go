@@ -10,6 +10,7 @@ import (
 	"github.com/minio/minio-go/v7/pkg/credentials"
 	"github.com/spf13/cobra"
 	"golang.org/x/net/webdav"
+	"golang.org/x/sync/errgroup"
 )
 
 type ctxKey int
@@ -23,13 +24,15 @@ var (
 	preferDirectory bool // Minio does not allow duplicate names for directory and file names, but s3 does.
 	allowBucketsOps bool
 	verbose         bool
+	tlsCert         string
+	tlsKey          string
 
 	username string // for debug
 	password string // for debug
 )
 
 var RootCmd = &cobra.Command{
-	Use: "miniodav",
+	Use: "s3dav-proxy",
 	Run: func(cmd *cobra.Command, args []string) {
 		srv := &webdav.Handler{
 			FileSystem: newHandler(),
@@ -50,7 +53,7 @@ var RootCmd = &cobra.Command{
 			}
 			mc, err := minio.New(endpoint, &minio.Options{
 				Creds:  credentials.NewStaticV4(_username, _password, ""),
-				Secure: true,
+				Secure: secure,
 			})
 			if err != nil {
 				if verbose {
@@ -80,19 +83,30 @@ var RootCmd = &cobra.Command{
 
 			srv.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), minioClientCtxKey, mc)))
 		})
-		if err := http.ListenAndServe(fmt.Sprintf(":%d", port), nil); err != nil {
-			log.Fatalf("Error with WebDAV server: %v", err)
+		eg := errgroup.Group{}
+		eg.Go(func() error {
+			if tlsCert != "" && tlsKey != "" {
+				return http.ListenAndServeTLS(fmt.Sprintf(":%d", port), tlsCert, tlsKey, nil)
+			} else {
+				return http.ListenAndServe(fmt.Sprintf(":%d", port), nil)
+			}
+		})
+		log.Printf("Listening on port %d", port)
+		if err := eg.Wait(); err != nil {
+			log.Fatal(err)
 		}
 	},
 }
 
 func init() {
-	RootCmd.Flags().StringVarP(&endpoint, "endpoint", "e", "play.min.io", "Minio endpoint")
-	RootCmd.Flags().BoolVarP(&secure, "secure", "s", true, "Use secure connection")
+	RootCmd.Flags().StringVarP(&endpoint, "endpoint", "e", "localhost:9000", "Minio endpoint")
+	RootCmd.Flags().BoolVarP(&secure, "secure", "s", false, "Use secure connection")
 	RootCmd.Flags().UintVarP(&port, "port", "p", 8080, "Port to listen on")
 	RootCmd.Flags().BoolVarP(&preferDirectory, "prefer-directory", "d", true, "Prefer directory over file")
 	RootCmd.Flags().BoolVarP(&allowBucketsOps, "allow-buckets-ops", "b", false, "Allow operations on buckets")
 	RootCmd.Flags().BoolVarP(&verbose, "verbose", "v", false, "Verbose output")
+	RootCmd.Flags().StringVarP(&tlsCert, "tls-cert", "c", "", "TLS certificate")
+	RootCmd.Flags().StringVarP(&tlsKey, "tls-key", "k", "", "TLS key")
 	RootCmd.Flags().StringVarP(&username, "username", "U", "", "Username")
 	RootCmd.Flags().MarkHidden("username")
 	RootCmd.Flags().StringVarP(&password, "password", "P", "", "Password")
