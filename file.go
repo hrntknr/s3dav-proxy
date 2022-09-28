@@ -189,6 +189,9 @@ func (f *File) Stat() (fs.FileInfo, error) {
 			}, nil
 		}
 		if f.flag&os.O_CREATE != 0 {
+			if readOnly {
+				return nil, os.ErrPermission
+			}
 			if _, err := f.mc.PutObject(f.ctx, f.path[0], strings.Join(f.path[1:], "/"), bytes.NewBuffer([]byte{}), 0, minio.PutObjectOptions{}); err != nil {
 				return nil, handleMinioError(err)
 			}
