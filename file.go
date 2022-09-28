@@ -210,6 +210,9 @@ func (f *File) Read(p []byte) (n int, err error) {
 }
 
 func (f *File) Write(p []byte) (n int, err error) {
+	if readOnly {
+		return 0, os.ErrPermission
+	}
 	f.lock.Lock()
 	defer f.lock.Unlock()
 

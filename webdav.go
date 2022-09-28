@@ -21,6 +21,9 @@ func newHandler() *Handler {
 }
 
 func (d *Handler) Mkdir(ctx context.Context, name string, perm os.FileMode) error {
+	if readOnly {
+		return os.ErrPermission
+	}
 	mc := ctx.Value(minioClientCtxKey).(*minio.Client)
 	names := splitPath(name)
 	if len(names) == 0 {
@@ -59,6 +62,9 @@ func (d *Handler) OpenFile(ctx context.Context, name string, flag int, perm os.F
 }
 
 func (d *Handler) RemoveAll(ctx context.Context, name string) error {
+	if readOnly {
+		return os.ErrPermission
+	}
 	mc := ctx.Value(minioClientCtxKey).(*minio.Client)
 	names := splitPath(name)
 	if len(names) == 0 {
@@ -155,6 +161,9 @@ func (d *Handler) RemoveAll(ctx context.Context, name string) error {
 }
 
 func (d *Handler) Rename(ctx context.Context, oldName, newName string) error {
+	if readOnly {
+		return os.ErrPermission
+	}
 	mc := ctx.Value(minioClientCtxKey).(*minio.Client)
 	oldNames := splitPath(oldName)
 	newNames := splitPath(newName)
