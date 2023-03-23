@@ -140,6 +140,7 @@ func (d *Handler) RemoveAll(ctx context.Context, name string) error {
 			Recursive: true,
 		})
 		for obj := range list {
+			obj := obj
 			if obj.Err != nil {
 				return handleMinioError(obj.Err)
 			}
