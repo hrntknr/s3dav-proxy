@@ -3,7 +3,9 @@ package main
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"io/fs"
+	"log"
 	"os"
 	"strings"
 	"sync"
@@ -21,6 +23,7 @@ type File struct {
 	lock        *sync.Mutex
 	cacheObject *minio.Object
 	writeBuffer *bytes.Buffer
+	writeTmp    *os.File
 	flag        int
 }
 
@@ -34,11 +37,13 @@ func newFile(ctx context.Context, mc *minio.Client, path []string, dummyDirs []s
 		lock:        &sync.Mutex{},
 		cacheObject: nil,
 		writeBuffer: bytes.NewBuffer([]byte{}),
+		writeTmp:    nil,
 		flag:        flag,
 	}
 }
 
 func (f *File) Readdir(count int) ([]fs.FileInfo, error) {
+	fmt.Println("Readdir", f.path, count)
 	if len(f.path) == 0 {
 		list, err := f.mc.ListBuckets(context.Background())
 		if err != nil {
@@ -163,10 +168,21 @@ func (f *File) Stat() (fs.FileInfo, error) {
 					isDir:   true,
 				}, nil
 			} else {
-				if f.writeBuffer.Len() > 0 {
+				if inMemory && f.writeBuffer.Len() > 0 {
 					return &FileInfo{
 						name:    "",
 						size:    int64(f.writeBuffer.Len()),
+						modTime: time.Now(),
+						isDir:   false,
+					}, nil
+				} else if !inMemory && f.writeTmp != nil {
+					stat, err := f.writeTmp.Stat()
+					if err != nil {
+						return nil, err
+					}
+					return &FileInfo{
+						name:    "",
+						size:    stat.Size(),
 						modTime: time.Now(),
 						isDir:   false,
 					}, nil
@@ -223,10 +239,28 @@ func (f *File) Write(p []byte) (n int, err error) {
 		return 0, os.ErrInvalid
 	}
 	if f.offset != 0 {
-		f.writeBuffer.Reset()
+		if inMemory {
+			f.writeBuffer.Reset()
+		} else {
+			if f.writeTmp != nil {
+				f.writeTmp.Close()
+				f.writeTmp = nil
+			}
+		}
 		return 0, os.ErrInvalid
 	}
-	return f.writeBuffer.Write(p)
+	if inMemory {
+		return f.writeBuffer.Write(p)
+	} else {
+		if f.writeTmp == nil {
+			file, err := os.CreateTemp("", "s3dav-proxy")
+			if err != nil {
+				return 0, os.ErrInvalid
+			}
+			f.writeTmp = file
+		}
+		return f.writeTmp.Write(p)
+	}
 }
 
 func (f *File) Seek(offset int64, whence int) (int64, error) {
@@ -246,9 +280,17 @@ func (f *File) Seek(offset int64, whence int) (int64, error) {
 }
 
 func (f *File) Close() error {
-	if f.writeBuffer.Len() > 0 {
+	if inMemory && f.writeBuffer.Len() > 0 {
 		if _, err := f.mc.PutObject(f.ctx, f.path[0], strings.Join(f.path[1:], "/"), f.writeBuffer, int64(f.writeBuffer.Len()), minio.PutObjectOptions{}); err != nil {
 			return handleMinioError(err)
+		}
+	}
+	if !inMemory && f.writeTmp != nil {
+		if _, err := f.mc.PutObject(f.ctx, f.path[0], strings.Join(f.path[1:], "/"), f.writeTmp, 0, minio.PutObjectOptions{}); err != nil {
+			return handleMinioError(err)
+		}
+		if err := os.Remove(f.writeTmp.Name()); err != nil {
+			log.Println(err)
 		}
 	}
 	if f.cacheObject != nil {
