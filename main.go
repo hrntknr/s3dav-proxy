@@ -25,6 +25,7 @@ var (
 	preferDirectory bool // Minio does not allow duplicate names for directory and file names, but s3 does.
 	allowBucketsOps bool
 	readOnly        bool
+	inMemory        bool
 	verbose         bool
 	tlsCert         string
 	tlsKey          string
@@ -115,6 +116,7 @@ func init() {
 	RootCmd.Flags().BoolVarP(&preferDirectory, "prefer-directory", "d", true, "Prefer directory over file")
 	RootCmd.Flags().BoolVarP(&allowBucketsOps, "allow-buckets-ops", "b", false, "Allow operations on buckets")
 	RootCmd.Flags().BoolVarP(&readOnly, "ro", "", false, "Read only")
+	RootCmd.Flags().BoolVarP(&inMemory, "in-memory", "m", false, "In memory(upload)")
 	RootCmd.Flags().BoolVarP(&verbose, "verbose", "v", false, "Verbose output")
 	RootCmd.Flags().StringVarP(&tlsCert, "tls-cert", "c", "", "TLS certificate")
 	RootCmd.Flags().StringVarP(&tlsKey, "tls-key", "k", "", "TLS key")

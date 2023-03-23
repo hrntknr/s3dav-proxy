@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"strings"
 
@@ -56,6 +57,7 @@ func (d *Handler) Mkdir(ctx context.Context, name string, perm os.FileMode) erro
 }
 
 func (d *Handler) OpenFile(ctx context.Context, name string, flag int, perm os.FileMode) (webdav.File, error) {
+	fmt.Println("OpenFile", name, flag, perm)
 	mc := ctx.Value(minioClientCtxKey).(*minio.Client)
 	names := splitPath(name)
 	return newFile(ctx, mc, names, d.dummyDirs, flag), nil
