@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"io"
 	"io/fs"
 	"log"
 	"os"
@@ -286,7 +287,14 @@ func (f *File) Close() error {
 		}
 	}
 	if !inMemory && f.writeTmp != nil {
-		if _, err := f.mc.PutObject(f.ctx, f.path[0], strings.Join(f.path[1:], "/"), f.writeTmp, 0, minio.PutObjectOptions{}); err != nil {
+		stat, err := f.writeTmp.Stat()
+		if err != nil {
+			return err
+		}
+		if _, err := f.writeTmp.Seek(0, io.SeekStart); err != nil {
+			return err
+		}
+		if _, err := f.mc.PutObject(f.ctx, f.path[0], strings.Join(f.path[1:], "/"), f.writeTmp, stat.Size(), minio.PutObjectOptions{}); err != nil {
 			return handleMinioError(err)
 		}
 		if err := os.Remove(f.writeTmp.Name()); err != nil {
@@ -297,6 +305,7 @@ func (f *File) Close() error {
 		if err := f.cacheObject.Close(); err != nil {
 			return err
 		}
+		f.cacheObject = nil
 	}
 	return nil
 }
